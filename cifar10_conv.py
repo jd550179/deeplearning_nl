@@ -113,7 +113,7 @@ model.compile(
 fit = model.fit(
     X_train, Y_train,
     batch_size=100,
-    epochs=10,
+    epochs=1,
     verbose=2,
     validation_split=0.1,  # split off 10% training data for validation
     callbacks=[])
@@ -126,6 +126,11 @@ fit = model.fit(
 # predicted probabilities for the test set
 Yp = model.predict(X_test)
 yp = np.argmax(Yp, axis=1)
+
+folder = 'results/cifar10/'
+if not os.path.exists(folder):
+    os.makedirs(folder)
+
 
 cifar10_classes = np.array([
     'airplane',
@@ -149,8 +154,10 @@ for i in range(10):
         classes,
         fname=folder + 'test-%i.png' % i)
 '''
+
+print(yp, y_test)
 # plot the confusion matrix
-ut.plot_confusion(yp, data.test.labels, cifar10_classes,
+ut.plot_confusion(yp, y_test[:,0], cifar10_classes,
                            fname=folder + 'confusion.png')
                            
 
