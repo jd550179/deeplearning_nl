@@ -113,7 +113,7 @@ model.compile(
 fit = model.fit(
     X_train, Y_train,
     batch_size=100,
-    epochs=1,
+    epochs=10,
     verbose=2,
     validation_split=0.1,  # split off 10% training data for validation
     callbacks=[])
