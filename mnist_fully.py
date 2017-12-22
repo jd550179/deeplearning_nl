@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-import utils.utils
+import utils.utils as ut
 
 from tensorflow.examples.tutorials.mnist import input_data
 
@@ -81,16 +81,16 @@ yp = np.argmax(Yp, axis=1)
 classes= np.array([0,1,2,3,4,5,6,7,8,9])
 
 # plot some test images along with the prediction
+'''
 for i in range(10):
-    print(data.test.labels[i])
     utils.utils.plot_prediction(
         Yp[i],
         data.test.images[i],
         data.test.labels[i],
         classes,
         fname=folder + 'test-%i.png' % i)
-
+'''
 # plot the confusion matrix
-utils.utils.plot_confusion(yp, data.test.labels, classes,
+ut.plot_confusion(yp, data.test.labels, classes,
                            fname=folder + 'confusion.png')
                            
