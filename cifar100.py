@@ -26,6 +26,7 @@ from keras.datasets import cifar100
 from keras.optimizers import Adam
 from keras.utils.np_utils import to_categorical
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from keras.preprocessing.image import ImageDataGenerator
 
 from keras.layers import *
 from keras.regularizers import l2
@@ -41,20 +42,33 @@ X_train=x_train
 X_test=x_test
 
 
+X_train, X_valid = np.split(x_train, [-7500])
+y_train, y_valid = np.split(y_train, [-7500])
+
+
+
+
+
+
+X_train = X_train.astype('float32')
+X_test = X_test.astype('float32')
+# channel-wise standard normalization
+mX = np.mean(x_train, axis=(0, 1, 2))
+sX = np.std(x_train, axis=(0, 1, 2))
+
+
+X_train = (X_train - mX) / sX
+X_valid = (X_valid - mX) / sX
+X_test = (X_test - mX) / sX
+
+
 
 print( y_train.shape)
 #y
 Y_train = to_categorical(y_train, 100)
+Y_valid = to_categorical(y_valid, 100)
 Y_test = to_categorical(y_test, 100)
 
-X_train = X_train.astype('float32')
-X_test = X_test.astype('float32')
-
-X_train -= np.mean(X_train, axis = 0)
-X_test -= np.mean(X_test, axis = 0)
-
-X_train /= 255.
-X_test /= 255.
 
 print( X_train.shape)
 
@@ -80,35 +94,46 @@ def residual_unit(z0, n,drop=0.0):
     return Activation("elu")(z)
 ###########################################################
 
-z = Conv2D(32, (3, 3),activation='elu')( input1 )
+z0 = Conv2D(32, (3, 3),activation='elu')( input1 )
 Dropout(0.75)(z0)
-z = Conv2D(32, (2, 2),activation='elu')( z )    
+z0 = Conv2D(32, (2, 2),activation='elu')( z0 )    
 Dropout(0.75)(z0)
-z = MaxPooling2D((2, 2), strides=(2, 2))(z)
+
+
+#PATH 1
+z = MaxPooling2D((2, 2), strides=(2, 2))(z0)
 z = Conv2D(32, (2, 2),activation='elu')( z )    
 Dropout(0.75)(z)
-
 z=residual_unit(z,32,drop=0.75)
-    
-z = MaxPooling2D((2, 2), strides=(1, 1))(z)
-    
+z = MaxPooling2D((2, 2), strides=(1, 1))(z) 
 z=residual_unit(z,32,drop=0.75)
 z = MaxPooling2D((2, 2), strides=(1, 1))(z)
 BatchNormalization(gamma_regularizer=l2(1E-4),
                            beta_regularizer=l2(1E-4))(z)
-
-z1=z
 z=residual_unit(z,32,drop=0.75)
-
 BatchNormalization(gamma_regularizer=l2(1E-4),
                            beta_regularizer=l2(1E-4))(z)
-#z = MaxPooling2D((2, 2), strides=(1, 1))(z)
-z=concatenate([z1, z])
-z=Activation("elu")(z)
 
+
+#PATH 2
+z1= Conv2D(32, (2, 2),activation='elu')( z0 )
+z1= Conv2D(32, (2, 2),activation='elu')( z1 )
+z1 = MaxPooling2D((4, 4), strides=(2, 2))(z1) 
+BatchNormalization(gamma_regularizer=l2(1E-4),
+                           beta_regularizer=l2(1E-4))(z1)
+z1= Conv2D(32, (2, 2),activation='elu')( z1 )
+
+
+
+
+
+
+
+#Concatenate them
+z=concatenate([z, z1])
   
 Dropout(0.75)(z)
-z=residual_unit(z,32,drop=0.75)
+z=residual_unit(z,128,drop=0.75)
 
 z = MaxPooling2D((4, 4), strides=(2, 2))(z)
 z=Flatten()(z)
@@ -117,23 +142,35 @@ output=Dense(100, activation= "softmax")(z)
 
 
 model = keras.models.Model(inputs=input1, outputs=output)
+model.summary()
 
-print(model.summary())
-
-    
 model.compile(
     loss='categorical_crossentropy',
-    optimizer=Adam(lr=0.001),  #hyperparameter
-    metrics=['accuracy'])
+    optimizer="adam",
+    metrics=["accuracy"])
 
-fit = model.fit(
-    X_train, Y_train,
-    batch_size=120,    #hyperparameter
-    epochs=30,
+# data augmentation, what does this do?
+generator = ImageDataGenerator(
+    width_shift_range=4. / 32,
+    height_shift_range=4. / 32,
+    fill_mode='constant',
+    horizontal_flip=True,
+    rotation_range=5.)
+
+batch_size = 50
+steps_per_epoch = len(X_train) // batch_size
+
+# fit using augmented data generator
+fit=model.fit_generator(
+    generator.flow(X_train, Y_train, batch_size=batch_size),
+    steps_per_epoch=steps_per_epoch,
+    epochs=100,
+    validation_data=(X_valid, Y_valid),  # fit_generator doesn't work with validation_split
     verbose=2,
-    validation_split=0.15,  # split off 10% training data for validation
-    callbacks=[ReduceLROnPlateau(monitor='val_loss', factor=2. / 3, patience=10, verbose=1),
-              EarlyStopping(monitor='val_loss', patience=15)])
+    callbacks=[ReduceLROnPlateau(monitor='val_loss', factor=2. / 3, patience=5, verbose=1),
+               EarlyStopping(monitor='val_loss', patience=10)])
+
+
 
 # ----------------------------------------------
 # Some plots
@@ -141,7 +178,7 @@ fit = model.fit(
 
 # predicted probabilities for the test set
     
-score = model.evaluate(X_test, Y_test, verbose=0)    
+[loss, accuracy] = model.evaluate(X_test, Y_test, verbose=0) 
     
 Yp = model.predict(X_test)
 yp = np.argmax(Yp, axis=1)
@@ -197,10 +234,11 @@ ut.plot_confusion(yp, y_test[:,0],
                            fname=folder + 'confusion.png')
 
 
-good = np.count_nonzero(yp-y_test == 0)
 
-print(good*1./yp.size) 
 
-print(score)
 
+
+print("loss:", loss)
+
+print("accuracy:", accuracy)
 

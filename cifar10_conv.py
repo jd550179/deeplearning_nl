@@ -18,7 +18,8 @@ from keras.datasets import cifar10
 #from keras.layers import Dense, Dropout, Activation, Flatten
 from keras.optimizers import Adam
 from keras.utils.np_utils import to_categorical
-from keras.callbacks import EarlyStopping
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from keras.preprocessing.image import ImageDataGenerator
 
 from keras.layers import *
 from keras.regularizers import l2
@@ -34,89 +35,134 @@ X_train=x_train
 X_test=x_test
 
 
+X_train, X_valid = np.split(x_train, [-7500])
+y_train, y_valid = np.split(y_train, [-7500])
 
 
-#y
-Y_train = to_categorical(y_train, 10)
-Y_test = to_categorical(y_test, 10)
+
+
+
 
 X_train = X_train.astype('float32')
 X_test = X_test.astype('float32')
-X_train /= 255
-X_test /= 255
+# channel-wise standard normalization
+mX = np.mean(x_train, axis=(0, 1, 2))
+sX = np.std(x_train, axis=(0, 1, 2))
+
+
+X_train = (X_train - mX) / sX
+X_valid = (X_valid - mX) / sX
+X_test = (X_test - mX) / sX
+
+
+
+print( y_train.shape)
+#y
+Y_train = to_categorical(y_train, 10)
+Y_valid = to_categorical(y_valid, 10)
+Y_test = to_categorical(y_test, 10)
+
 
 print( X_train.shape)
 
 input1 = Input(shape=(32, 32, 3))
 
+###############################################################
+#residual unit, the holy grail :)#
+def residual_unit(z0, n,drop=0.0):
+    
+    zstart = Conv2D(n, (1, 1),padding="same",activation='elu')(z0)
+    Dropout(drop)(zstart)
+    BatchNormalization(gamma_regularizer=l2(1E-4),
+                           beta_regularizer=l2(1E-4))(zstart)
+    
+    z = Conv2D(n, (3, 3),padding="same",activation='elu')(zstart)
+    Dropout(drop)(z)
+    BatchNormalization(gamma_regularizer=l2(1E-4),
+                           beta_regularizer=l2(1E-4))(z)
+    z = Conv2D(n, (3, 3),padding="same")(z)
+    Dropout(drop)(z)
+    z = add([z,zstart])
+    Dropout(drop)(z)
+    return Activation("elu")(z)
+###########################################################
 
-model = Sequential()
-model.add(keras.layers.Convolution2D(
-                                        36,
-                                        kernel_size=(5,5),
-                                        strides=(1,1),
-                                        padding="same",
-                                        dilation_rate=1,
-                                        activation=None,
-                                        input_shape=X_train.shape[1:]))
-model.add(Activation("relu"))
-#model.add(keras.layers.Convolution2D(
-#                                        64,
-#                                        kernel_size=(5,5),
-#                                       strides=(1,1),
-#                                        padding="same",
-#                                        dilation_rate=2))
-#model.add(Activation("relu"))
-model.add(keras.layers.MaxPooling2D(
-                                    (2,2),
-                                    strides=None,
-                                    padding="valid"))
-model.add(Dropout(0.25))
-model.add(keras.layers.Convolution2D(
-                                        64,
-                                        kernel_size=(3,3),
-                                        strides=(1,1),
-                                        padding="same",
-                                        dilation_rate=2))
-model.add(Activation("relu"))
-#model.add(keras.layers.Convolution2D(
-#                                        64,
-#                                        kernel_size=(3,3),
-#                                        strides=(1,1),
-#                                        padding="same",
-#                                        dilation_rate=2))
-#model.add(Activation("relu"))
-model.add(keras.layers.MaxPooling2D(
-                                    (2,2),
-                                    strides=None,
-                                    padding="valid"))
-model.add(Dropout(0.5))
-
-model.add(Flatten())                                        
-model.add(Dense(128))
-model.add(Dropout(0.25))
-model.add(Activation("relu"))
-model.add(Dense(256))
-model.add(Dropout(0.25))
-model.add(Activation("relu"))
-model.add(Dense(10))
-model.add(Activation('softmax'))
+z0 = Conv2D(32, (3, 3),activation='elu')( input1 )
+Dropout(0.75)(z0)
+z0 = Conv2D(32, (2, 2),activation='elu')( z0 )    
+Dropout(0.75)(z0)
 
 
-print(model.summary())
+#PATH 1
+z = MaxPooling2D((2, 2), strides=(2, 2))(z0)
+z = Conv2D(32, (2, 2),activation='elu')( z )    
+Dropout(0.75)(z)
+z=residual_unit(z,32,drop=0.75)
+z = MaxPooling2D((2, 2), strides=(1, 1))(z) 
+z=residual_unit(z,32,drop=0.75)
+z = MaxPooling2D((2, 2), strides=(1, 1))(z)
+BatchNormalization(gamma_regularizer=l2(1E-4),
+                           beta_regularizer=l2(1E-4))(z)
+z=residual_unit(z,32,drop=0.75)
+BatchNormalization(gamma_regularizer=l2(1E-4),
+                           beta_regularizer=l2(1E-4))(z)
+
+
+#PATH 2
+z1= Conv2D(32, (2, 2),activation='elu')( z0 )
+z1= Conv2D(32, (2, 2),activation='elu')( z1 )
+z1 = MaxPooling2D((4, 4), strides=(2, 2))(z1) 
+BatchNormalization(gamma_regularizer=l2(1E-4),
+                           beta_regularizer=l2(1E-4))(z1)
+z1= Conv2D(32, (2, 2),activation='elu')( z1 )
+
+
+
+
+
+
+
+#Concatenate them
+z=concatenate([z, z1])
+  
+Dropout(0.75)(z)
+z=residual_unit(z,128,drop=0.75)
+
+z = MaxPooling2D((4, 4), strides=(2, 2))(z)
+z=Flatten()(z)
+
+output=Dense(10, activation= "softmax")(z)
+
+
+model = keras.models.Model(inputs=input1, outputs=output)
+model.summary()
 
 model.compile(
     loss='categorical_crossentropy',
-    optimizer=Adam(lr=1e-3),
-    metrics=['accuracy'])
+    optimizer="adam",
+    metrics=["accuracy"])
 
-fit = model.fit(
-    X_train, Y_train,
-    batch_size=100,
-    epochs=10,
+# data augmentation, what does this do?
+generator = ImageDataGenerator(
+    width_shift_range=4. / 32,
+    height_shift_range=4. / 32,
+    fill_mode='constant',
+    horizontal_flip=True,
+    rotation_range=5.)
+
+batch_size = 50
+steps_per_epoch = len(X_train) // batch_size
+
+# fit using augmented data generator
+fit=model.fit_generator(
+    generator.flow(X_train, Y_train, batch_size=batch_size),
+    steps_per_epoch=steps_per_epoch,
+    epochs=100,
+    validation_data=(X_valid, Y_valid),  # fit_generator doesn't work with validation_split
     verbose=2,
-    validation_split=0.1,  # split off 10% training data for validation
-    callbacks=[])
+    callbacks=[ReduceLROnPlateau(monitor='val_loss', factor=2. / 3, patience=5, verbose=1),
+               EarlyStopping(monitor='val_loss', patience=10)])
+
 
 
 # ----------------------------------------------
@@ -124,12 +170,31 @@ fit = model.fit(
 # ----------------------------------------------
 
 # predicted probabilities for the test set
+    
+[loss, accuracy] = model.evaluate(X_test, Y_test, verbose=0) 
+    
 Yp = model.predict(X_test)
 yp = np.argmax(Yp, axis=1)
 
 folder = 'results/cifar10/'
 if not os.path.exists(folder):
     os.makedirs(folder)
+    
+
+# plot some test images along with the prediction
+
+for i in range(10):
+    ut.plot_prediction(
+        Yp[i],
+        x_test[i],
+        y_test[i],
+        fname=folder + 'test-%i.png' % i,
+        top_n=10)
+print(yp, y_test)
+
+print("loss:", loss)
+
+print("accuracy:", accuracy)
 
 
 cifar10_classes = np.array([
@@ -144,16 +209,7 @@ cifar10_classes = np.array([
     'ship',
     'truck'])
 
-# plot some test images along with the prediction
-'''
-for i in range(10):
-    ut.plot_prediction(
-        Yp[i],
-        data.test.images[i],
-        data.test.labels[i],
-        classes,
-        fname=folder + 'test-%i.png' % i)
-'''
+
 
 print(yp, y_test)
 # plot the confusion matrix
