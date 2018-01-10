@@ -94,48 +94,41 @@ def residual_unit(z0, n,drop=0.0):
     return Activation("elu")(z)
 ###########################################################
 
-z0 = Conv2D(32, (3, 3),activation='elu')( input1 )
+z0 = Conv2D(16, (3, 3),activation='elu')( input1 )
 Dropout(0.75)(z0)
-z0 = Conv2D(32, (2, 2),activation='elu')( z0 )    
+z0 = Conv2D(16, (2, 2),activation='elu')( z0 )    
 Dropout(0.75)(z0)
 
 
 #PATH 1
 z = MaxPooling2D((2, 2), strides=(2, 2))(z0)
-z = Conv2D(32, (2, 2),activation='elu')( z )    
+z = Conv2D(16, (2, 2),activation='elu')( z )    
 Dropout(0.75)(z)
 z=residual_unit(z,32,drop=0.75)
 z = MaxPooling2D((2, 2), strides=(1, 1))(z) 
 z=residual_unit(z,32,drop=0.75)
+BatchNormalization(gamma_regularizer=l2(1E-4),
+                           beta_regularizer=l2(1E-4))(z)
 z = MaxPooling2D((2, 2), strides=(1, 1))(z)
+
+z1=residual_unit(z,32,drop=0.75)
+z=concatenate([z, z1])
+
+z1=residual_unit(z,64,drop=0.75)
+z=concatenate([z, z1])
+
 BatchNormalization(gamma_regularizer=l2(1E-4),
                            beta_regularizer=l2(1E-4))(z)
-z=residual_unit(z,32,drop=0.75)
-BatchNormalization(gamma_regularizer=l2(1E-4),
-                           beta_regularizer=l2(1E-4))(z)
-
-
-#PATH 2
-z1= Conv2D(32, (2, 2),activation='elu')( z0 )
-z1= Conv2D(32, (2, 2),activation='elu')( z1 )
-z1 = MaxPooling2D((4, 4), strides=(2, 2))(z1) 
-BatchNormalization(gamma_regularizer=l2(1E-4),
-                           beta_regularizer=l2(1E-4))(z1)
-z1= Conv2D(32, (2, 2),activation='elu')( z1 )
-
-
-
-
-
 
 
 #Concatenate them
-z=concatenate([z, z1])
-  
-Dropout(0.75)(z)
-z=residual_unit(z,128,drop=0.75)
 
 z = MaxPooling2D((4, 4), strides=(2, 2))(z)
+  
+Dropout(0.75)(z)
+
+z=residual_unit(z,128,drop=0.75)
+
 z=Flatten()(z)
 
 output=Dense(100, activation= "softmax")(z)
@@ -164,7 +157,7 @@ steps_per_epoch = len(X_train) // batch_size
 fit=model.fit_generator(
     generator.flow(X_train, Y_train, batch_size=batch_size),
     steps_per_epoch=steps_per_epoch,
-    epochs=100,
+    epochs=200,
     validation_data=(X_valid, Y_valid),  # fit_generator doesn't work with validation_split
     verbose=2,
     callbacks=[ReduceLROnPlateau(monitor='val_loss', factor=2. / 3, patience=5, verbose=1),
