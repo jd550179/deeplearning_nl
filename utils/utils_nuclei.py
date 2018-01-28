@@ -8,6 +8,8 @@ import os
 from keras.preprocessing import image
 import tensorflow as tf
 import keras.backend as K
+from keras.losses import binary_crossentropy
+
 
 from skimage.morphology import label
 from skimage.transform import resize
@@ -23,7 +25,21 @@ def mean_iou(y_true, y_pred):
         with tf.control_dependencies([up_opt]):
             score = tf.identity(score)
         prec.append(score)
-    return K.mean(K.stack(prec), axis=0)
+    return K.mean(K.stack(prec))
+
+
+def dice_coef(y_true, y_pred):
+    smooth = 1.
+    #y_true = tf.to_int32(y_true)
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = K.sum(y_true_f * y_pred_f)
+    return (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+
+def bce_dice_loss(y_true, y_pred):
+    #y_true = tf.to_int32(y_true)
+    return 0.5 * binary_crossentropy(y_true, y_pred) - dice_coef(y_true, y_pred)
+
 
 
 def read_img(img_id, train_or_test, size, data_dir):

@@ -38,60 +38,9 @@ sample_submission = pd.read_csv(data_dir + 'stage1_sample_submission.csv')
 #print(labels.EncodedPixels.shape)
 
 size=256
-def mean_iou(y_true, y_pred):
-    prec = []
-    for t in np.arange(0.5, 1.0, 0.05):
-        y_true = tf.to_int32(y_true)
-        y_pred_ = tf.to_int32(y_pred > t)
-        score, up_opt = tf.metrics.mean_iou(y_true, y_pred_, 2)
-        K.get_session().run(tf.local_variables_initializer())
-        with tf.control_dependencies([up_opt]):
-            score = tf.identity(score)
-        prec.append(score)
-    return K.mean(K.stack(prec), axis=0)
-'''
-def read_img(img_id, train_or_test, size, mask="images"):
-    img = image.load_img(data_dir + train_or_test +"/"+str(img_id)+"/images/"+str(img_id)+".png", target_size=(size, size))
-    img = image.img_to_array(img)
-    return img
-
-def read_mask(img_id, size):
-    directory=data_dir + "stage1_train/"+str(img_id)+"/masks/"
-    maskfiles= os.listdir(directory)
-    mask_array=np.zeros((size,size,3))
-    for j in (maskfiles):
-        img = image.load_img(directory+str(j), target_size=(size, size))
-        img = image.img_to_array(img)
-        mask_array=np.add(mask_array,img)
-    return mask_array[:,:,0].reshape((size,size,1))
 
 
-#@vectorize(["float32(string,int32,int32)"] , target = 'cpu')
-def read_data(img_id, train, size):
-    progress=0
-    if train == 1:
-        directory="stage1_train"
-        mask_train_list=[]
-
-    else:
-        directory="stage1_test"
-    X_train_list=[]
-    unique, indices=np.unique(img_id, return_index=True)
-    for i in (unique):
-        if progress%50==0:
-            print( progress)
-        img = read_img(str(i), directory, size)/255.
-        X_train_list.append(img)
-
-        if train==1:
-             mask_train_list.append((read_mask(i, size)/255))
-        progress+=1
-    if train==1:
-        return np.array(X_train_list), np.array(mask_train_list)
-    else:
-        return np.array(X_train_list)
-'''
-x_train, y_train=read_data(labels.ImageId.values, 1,  size)
+x_train, y_train=read_data(labels.ImageId.values, 1,  size, data_dir)
 
 
 folder = 'results/nuclei/'
@@ -104,21 +53,24 @@ print(np.unique(y_train))
 
 
 
-#X_train, X_valid = np.split(x_train, [-75])
-#Y_train, Y_valid = np.split(y_train, [-75])
+X_train, X_valid = np.split(x_train, [-65])
+Y_train, Y_valid = np.split(y_train, [-65])
 
-X_train = x_train.astype('float32')
-#X_valid = x_valid.astype('float32')
+X_train = X_train.astype('float32')
+X_valid = X_valid.astype('float32')
 #X_test = X_test.astype('float32')
 # channel-wise standard normalization
 mX = np.mean(X_train, axis=(0, 1, 2))
 sX = np.std(X_train, axis=(0, 1, 2))
 
 X_train = (X_train - mX) / sX
-#X_valid = (X_valid - mX) / sX
+X_valid = (X_valid - mX) / sX
 
-Y_train=y_train
+#Y_train=y_train
 
+#############################
+#Model
+#############################
 
 input1 = Input(shape=(size, size, 3))
 
@@ -226,23 +178,43 @@ u=Conv2D(8, (2,2), activation="relu", padding="same")(u0)
 u_last=concatenate([u,z0])
 output=Conv2D(1, (1,1), activation="sigmoid", padding="same")(u_last)
 
+###############################################################################
+
 model = keras.models.Model(inputs=input1, outputs=output)
 model.summary()
 
 model.compile(
-    loss='binary_crossentropy',
+    loss="binary_crossentropy",
     optimizer="adam",
     metrics=[mean_iou])
 
-# data augmentation, what does this do?
-
-generator = ImageDataGenerator()
-
 batch_size = 16
-#steps_per_epoch = len(X_train) // batch_size
-checkpointer = ModelCheckpoint('model_dsbowl2018_1.h5', verbose=1, save_best_only=True)
+steps_per_epoch = len(X_train) // batch_size
+checkpointer = ModelCheckpoint('model_dsbowl2018_2.h5', verbose=1, save_best_only=True)
 
-# fit using augmented data generator
+# data augmentation, what does this do?
+image_datagen = ImageDataGenerator(horizontal_flip=True,
+                         vertical_flip=True,
+                         rotation_range=90.,
+                         width_shift_range=0.1,
+                         height_shift_range=0.1,
+                         zoom_range=0.1)
+
+mask_datagen = ImageDataGenerator(horizontal_flip=True,
+                         vertical_flip=True,
+                         rotation_range=90.,
+                         width_shift_range=0.1,
+                         height_shift_range=0.1,
+                         zoom_range=0.1)
+image_datagen.fit(X_train, seed=7)
+mask_datagen.fit(Y_train, seed=7)
+image_generator = image_datagen.flow(X_train, batch_size=batch_size, seed=7)
+mask_generator = mask_datagen.flow(Y_train, batch_size=batch_size, seed=7)
+train_generator = zip(image_generator, mask_generator)
+
+
+
+'''
 fit = model.fit(
     X_train, Y_train,
     batch_size=batch_size,
@@ -252,18 +224,30 @@ fit = model.fit(
     callbacks=[ReduceLROnPlateau(monitor='val_loss', factor=2. / 3, patience=5, verbose=1),
                EarlyStopping(monitor='val_loss', patience=15),
                checkpointer])
-
 '''
+# fit using augmented data generator
 fit=model.fit_generator(
-    generator.flow(X_train, Y_train, batch_size=batch_size),
+    train_generator,
     steps_per_epoch=steps_per_epoch,
-    epochs=100,
+    epochs=200,
     validation_data=(X_valid, Y_valid),  # fit_generator doesn't work with validation_split
     verbose=2,
     callbacks=[ReduceLROnPlateau(monitor='val_loss', factor=2. / 3, patience=5, verbose=1),
-               EarlyStopping(monitor='val_loss', patience=10)])
-'''
-Yp_train = model.predict(X_train)
+               EarlyStopping(monitor='val_loss', patience=15),
+               checkpointer])
 
-plt.imshow(Yp_train[0,:,:,0])
-plt.savefig(folder+"photos/train_output0.png")
+
+
+Yp_train = model.predict(X_train)
+if not os.path.exists(folder+"photos/train/"):
+    os.makedirs(folder+"photos/train/")
+
+for i in range(10):
+    plt.imshow(Yp_train[i,:,:,0])
+    plt.savefig(folder+"photos/train/output"+str(i)+".png")
+
+    plt.imshow(X_train[i])
+    plt.savefig(folder+"photos/train/image"+str(i)+".png")
+
+    plt.imshow(Y_train[i,:,:,0])
+    plt.savefig(folder+"photos/train/mask"+str(i)+".png")

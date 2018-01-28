@@ -40,7 +40,8 @@ sample_submission = pd.read_csv(data_dir + 'stage1_sample_submission.csv')
 
 size=256
 
-model=keras.models.load_model('model_dsbowl2018_1.h5', custom_objects={'mean_iou': mean_iou})
+model1=keras.models.load_model('model_dsbowl2018_1.h5', custom_objects={'mean_iou': mean_iou})
+model2=keras.models.load_model('model_dsbowl2018_2.h5', custom_objects={'mean_iou': mean_iou, "bce_dice_loss": bce_dice_loss})
 
 #x_train, y_train=read_data(labels.ImageId.values, 1,  size, data_dir)
 x_test=read_data(sample_submission.ImageId.values, 0,  size, data_dir)
@@ -67,7 +68,7 @@ X_test = (X_test - mX_test) / sX_test
 #Y_train=y_train
 
 #Yp_train = model.predict(X_train)
-Yp = model.predict(X_test)
+Yp = (model2.predict(X_test))# + model2.predict(X_test))/2.
 
 preds_test_upsampled = []
 for i in range(len(Yp)):
