@@ -13,6 +13,7 @@ from keras.losses import binary_crossentropy
 
 from skimage.morphology import label
 from skimage.transform import resize
+from skimage.segmentation import find_boundaries
 
 
 def mean_iou(y_true, y_pred):
@@ -56,16 +57,34 @@ def read_mask(img_id, size, data_dir):
     mask_array=np.zeros((size,size,3))
     for j in (maskfiles):
         img = image.load_img(directory+str(j), target_size=(size, size))
-        img = image.img_to_array(img)
+        img = image.img_to_array(img)/255
+        #img[:,:,2]= np.logical_not(img[:,:,0]).astype(int)
+        bound = find_boundaries(img[:,:,0], mode='inner')
+        img[:,:,0] = img[:,:,0] - bound
+        img[:,:,1]=bound
+        bound = find_boundaries(img[:,:,0], mode='inner')
+        img[:,:,0] = img[:,:,0] - bound
+        img[:,:,1]+=bound
+
         mask_array=np.add(mask_array,img)
-    return mask_array[:,:,0].reshape((size,size,1))
+    mask_array[:,:,2]=np.logical_not(mask_array[:,:,0]+mask_array[:,:,1]).astype(int)
+    """
+    plt.imshow(mask_array[:,:,0])
+    plt.show()
+    plt.imshow(mask_array[:,:,1])
+    plt.show()
+    plt.imshow(mask_array[:,:,2])
+    plt.show()
+    """
+    if np.unique(mask_array[:,:,0]+mask_array[:,:,1]+mask_array[:,:,2])!=1:
+        print("something overlaps")
+    return mask_array
 
 def read_data(img_id, train, size, data_dir):
     progress=0
     if train == 1:
         directory="stage1_train/"
         mask_train_list=[]
-
     else:
         directory="stage1_test/"
     X_train_list=[]
@@ -77,7 +96,7 @@ def read_data(img_id, train, size, data_dir):
         X_train_list.append(img)
 
         if train==1:
-             mask_train_list.append((read_mask(i, size, data_dir)/255))
+             mask_train_list.append((read_mask(i, size, data_dir)))
         progress+=1
     if train==1:
         return np.array(X_train_list), np.array(mask_train_list)
